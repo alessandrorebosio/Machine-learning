@@ -13,7 +13,7 @@ from sklearn.svm import SVC
 
 import utilities
 
-# Path containing test patterns
+# HOG and pipeline parameters
 image_side = 128
 orientations = 12
 cell_side = 16
@@ -24,7 +24,7 @@ db_path = 'DBs/CaniGatti_ML18'
 exp_path = 'Experiments'
 train_filelist = 'BinaryTrainingSet.txt'
 test_filelist = 'Unlabeled_BinaryTestSet.txt'
-result_path = 'pred_sol2.txt'  # Later copied as Es4Predictions.txt
+result_path = 'Es4Predictions.txt'
 memory = Memory(exp_path, verbose=0)
 
 
@@ -47,17 +47,21 @@ def power_transform(X, alpha=0.5):
     return np.power(np.clip(X, 0, None), alpha)
 
 
-# Load training patterns
+# Load training and test patterns
 train_raw_x, train_y = utilities.load_labeled_dataset(train_filelist, db_path, cache=memory)
+test_raw_x = utilities.load_unlabeled_dataset(test_filelist, db_path, cache=memory)
 utilities.shuffle_in_unison([train_raw_x, train_y], seed=1234)
-print('Loaded %d training images (cats: %d, dogs: %d).'
-      % (len(train_raw_x), np.count_nonzero(train_y == 0), np.count_nonzero(train_y == 1)))
+print('Loaded %d training images (cats: %d, dogs: %d) and %d test images.'
+      % (len(train_raw_x), np.count_nonzero(train_y == 0), np.count_nonzero(train_y == 1), len(test_raw_x)))
 
-# Preprocessing and HOG extraction (training)
+# Same preprocessing and HOG extraction for training and test images
 train_feature_x = extract_hog_features(train_raw_x)
+test_feature_x = extract_hog_features(test_raw_x)
 print('HOG train shape:', train_feature_x.shape)
+print('HOG test shape:', test_feature_x.shape)
+assert test_feature_x.shape[1] == train_feature_x.shape[1]
 
-# Build the classifier
+# Build the classifier: every step is fitted only on the training data it receives
 clf = Pipeline([
     ('pow', FunctionTransformer(power_transform, kw_args={'alpha': alpha})),
     ('scaler', StandardScaler()),
@@ -65,22 +69,13 @@ clf = Pipeline([
     ('svc', SVC(kernel='rbf', C=3, gamma=6e-4)),
 ])
 
-# Train the classifier
+# Evaluate the pipeline with repeated stratified cross-validation
+cv_solution1 = RepeatedStratifiedKFold(n_splits=5, n_repeats=5, random_state=2024)
+scores_solution1 = cross_val_score(clf, train_feature_x, train_y, cv=cv_solution1, scoring='accuracy', n_jobs=4)
+print('CV accuracy: %.4f +/- %.4f' % (scores_solution1.mean(), scores_solution1.std()))
+
+# Train on the whole training set and save predictions
 clf.fit(train_feature_x, train_y)
-
-# Load test patterns
-test_raw_x = utilities.load_unlabeled_dataset(test_filelist, db_path, cache=memory)
-
-# Preprocessing and HOG extraction (test)
-test_feature_x = extract_hog_features(test_raw_x)
-print('HOG test shape:', test_feature_x.shape)
-assert test_feature_x.shape[1] == train_feature_x.shape[1]
-
-cv_solution2 = RepeatedStratifiedKFold(n_splits=5, n_repeats=5, random_state=2024)
-scores2 = cross_val_score(clf, train_feature_x, train_y, cv=cv_solution2, scoring='accuracy', n_jobs=4)
-print('CV accuracy: %.4f +/- %.4f' % (scores2.mean(), scores2.std()))
-
-# Save predictions
 predictions = clf.predict(test_feature_x)
 
 with open(result_path, "w") as f:
@@ -88,4 +83,4 @@ with open(result_path, "w") as f:
         f.write(str(int(prediction)) + '\n')
 print('Predictions: %d cats / %d dogs' % (np.count_nonzero(predictions == 0),
                                           np.count_nonzero(predictions == 1)))
-print('Ok')
+print('Predictions successfully saved to %s' % result_path)

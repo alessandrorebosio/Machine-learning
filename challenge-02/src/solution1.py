@@ -4,7 +4,6 @@ os.environ['LOKY_MAX_CPU_COUNT'] = '4'
 import numpy as np
 from joblib import Memory
 from skimage import color, feature
-from sklearn.decomposition import PCA
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import FunctionTransformer, StandardScaler
 from sklearn.model_selection import cross_val_score
@@ -14,11 +13,11 @@ from sklearn.svm import SVC
 import utilities
 
 # HOG and pipeline parameters
-image_side = 128
+image_side = 176
 orientations = 12
 cell_side = 16
+block_side = 3
 alpha = 0.5
-n_pca = 256
 
 db_path = 'DBs/CaniGatti_ML18'
 exp_path = 'Experiments'
@@ -36,7 +35,7 @@ def extract_hog_features(images):
         hog = feature.hog(color.rgb2gray(img),
                           orientations=orientations,
                           pixels_per_cell=(cell_side, cell_side),
-                          cells_per_block=(2, 2),
+                          cells_per_block=(block_side, block_side),
                           block_norm='L2-Hys')
         hog_features.append(hog)
     return np.array(hog_features)
@@ -65,8 +64,7 @@ assert test_feature_x.shape[1] == train_feature_x.shape[1]
 clf = Pipeline([
     ('pow', FunctionTransformer(power_transform, kw_args={'alpha': alpha})),
     ('scaler', StandardScaler()),
-    ('pca', PCA(n_components=n_pca, random_state=1234)),
-    ('svc', SVC(kernel='rbf', C=3, gamma=6e-4)),
+    ('svc', SVC(kernel='rbf', C=3, gamma='scale')),
 ])
 
 # Evaluate the pipeline with repeated stratified cross-validation
